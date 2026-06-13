@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 + MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-tools-git
+            unzip
+
+      - name: Prepare dependency folders
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .deps/lib | Out-Null
+          New-Item -ItemType Directory -Force .deps/tmp | Out-Null
+          New-Item -ItemType Directory -Force .deps/obs-studio-src/build_x64/config | Out-Null
+
+      - name: Download OBS source headers
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/archive/refs/tags/31.1.1.zip" -OutFile .deps/obs-studio.zip
+          Expand-Archive -Path .deps/obs-studio.zip -DestinationPath .deps
+          Rename-Item .deps/obs-studio-31.1.1 .deps/obs-studio-src
+
+      - name: Create minimal obsconfig.h
+        shell: pwsh
+        run: |
+          @'
+          #pragma once
+          #define OBS_VERSION "31.1.1"
+          #define OBS_VERSION_MAJOR 31
+          #define OBS_VERSION_MINOR 1
+          #define OBS_VERSION_PATCH 1
+          #define OBS_INSTALL_PREFIX "."
+          #define OBS_DATA_PATH "data"
+          '@ | Set-Content .deps/obs-studio-src/build_x64/config/obsconfig.h
+
+      - name: Download obs.dll (portable package)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/31.1.1/OBS-Studio-31.1.1-Windows.zip" -OutFile .deps/obs-portable.zip
+          Expand-Archive -Path .deps/obs-portable.zip -DestinationPath .deps/obs-portable
+          $obsDll = Get-ChildItem .deps/obs-portable -Recurse -Filter obs.dll | Select-Object -First 1
+          if (-not $obsDll) { throw "obs.dll not found in downloaded package" }
+          Copy-Item $obsDll.FullName .deps/tmp/obs.dll -Force
+
+      - name: Generate import library from obs.dll
+        shell: msys2 {0}
+        run: |
+          set -e
+          cd .deps/tmp
+          gendef obs.dll
+          dlltool -d obs.def -l ../lib/libobs.dll.a --dllname obs.dll
+
+      - name: Configure CMake
+        shell: msys2 {0}
+        run: |
+          set -e
+          cmake -S . -B build -G Ninja -DOBS_ROOT="$(pwd)/release_root"
+
+      - name: Build plugin
+        shell: msys2 {0}
+        run: |
+          set -e
+          cmake --build build
+
+      - name: Package release zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release_artifacts | Out-Null
+          $zipName = "mouse-trail-windows-x64-${{ github.ref_name }}.zip"
+          Compress-Archive -Path release_root/obs-plugins,release_root/data,release_root/bin -DestinationPath (Join-Path release_artifacts $zipName)
+          "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release_artifacts/${{ env.ZIP_NAME }}
