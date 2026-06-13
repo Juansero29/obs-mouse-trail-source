@@ -42,8 +42,17 @@ git push origin v1.0.0
    - Smoke mode: upward drift (anti-gravity effect) on older points
    - Precision mode: no drift, trail fades in-place
 - Configurable trail color in source properties
+- **Canvas Mapping Modes** (new):
+   - All Monitors: trail canvas spans all connected monitors
+   - Specific Monitor: trail canvas limited to a selected monitor
+   - Mousepad: trail movement mapped based on mouse DPI and physical mousepad size
+- **Boundary Behaviors** (new):
+   - Delimited Zone: trail clamped at canvas edges (stops at boundary)
+   - Infinite Wrap: trail wraps to opposite side when crossing boundary
+   - Infinite Recenter: trail jumps back toward center when reaching boundary
 - Thread-safe trail management
 - Frame-rate-independent updates using OBS `video_tick` delta time
+- Cross-platform support (Windows primary, macOS/Linux fallback)
 
 ## Repository Layout
 
@@ -124,6 +133,37 @@ bash scripts/build_and_deploy.sh
 2. Run the script
 3. Start OBS and add **Dynamic Mouse Trail**
 4. Test **Trail Mode** and **Trail Color** in source properties
+
+## Source Properties Guide
+
+### Trail Mode
+- **Smoke**: older trail points drift upward (anti-gravity effect). Useful for attention-grabbing effects.
+- **Precision**: trail points fade in place without upward drift. Better for precise cursor tracking.
+
+### Trail Color
+Set the color of the trail gradient. Points fade from this color to transparent.
+
+### Canvas Mode
+Defines the coordinate system for the trail canvas:
+- **All Monitors**: trail spans across all connected monitors (virtual desktop). Default mode.
+- **Specific Monitor**: trail is limited to a single monitor. Select which monitor from the dropdown after choosing this option.
+- **Mousepad**: trail movement is based on physical mousepad dimensions and mouse DPI. See mousepad settings below.
+
+### Monitor Selection (only visible when "Specific Monitor" is selected)
+Dropdown list of available monitors with their resolution. Format: `DISPLAY1 (1920x1080 @ 0,0)`
+
+### Mousepad Settings (only visible when "Mousepad" mode is selected)
+- **Mouse DPI**: sensitivity of your mouse (dots per inch). Default: 800 DPI. Typical range: 400-3200.
+- **Mousepad Width**: physical width of your mousepad in millimeters. Default: 250mm.
+- **Mousepad Height**: physical height of your mousepad in millimeters. Default: 250mm.
+
+When in mousepad mode, the trail movement is calculated based on actual mouse movement (in screen pixels converted to physical distance) divided by your mousepad dimensions. This allows the trail to represent movement relative to your physical input device.
+
+### Boundary Behavior
+Controls what happens when the trail reaches the edge of the canvas:
+- **Delimited Zone (Clamped)**: trail stops at the canvas boundary. Movement beyond the boundary is not visible.
+- **Infinite Wrap (Continuous)**: when the trail crosses an edge, it continues from the opposite side (wraps around).
+- **Infinite Recenter (Jump to Center)**: when the trail crosses an edge, it jumps back toward the center and continues. Creates a "teleport" effect at boundaries.
 
 ## Prerequisites (Windows, MinGW path)
 
@@ -223,6 +263,45 @@ Contributions are welcome.
 - [ ] Source registration succeeds (no `obs_register_source failed`)
 - [ ] Visual behavior tested in OBS preview
 - [ ] README updated if setup or behavior changed
+
+## Platform Support
+
+### Windows (Primary)
+- ✅ Full support for all features
+- Monitor enumeration via `EnumDisplayMonitors`
+- Cursor position via `GetCursorPos`
+- Multi-monitor support with individual monitor selection
+
+### macOS/Linux
+- ⚠️ Limited support (fallback mode)
+- Mousepad mode not yet implemented (uses approximation)
+- Monitor selection shows single fallback monitor
+- Contributions welcome for platform-specific implementations
+
+### Known Limitations
+- **Mousepad mode**: Currently only implemented on Windows. macOS/Linux use a simple screen-space fallback.
+- **Monitor enumeration**: Platform-specific. Windows is fully featured.
+- **Boundary behaviors**: All modes (wrap, recenter, delimited) work consistently across platforms.
+
+## Troubleshooting
+
+### Source doesn't appear in OBS
+Check the OBS log:
+```powershell
+$log = Get-ChildItem "$env:APPDATA\obs-studio\logs" -Filter "*.txt" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+Select-String -Path $log.FullName -Pattern "mouse_trail|Failed to initialize module"
+```
+
+### Trail not visible or frozen
+1. Ensure **Trail Mode** and **Trail Color** are set in source properties
+2. Move your mouse in the OBS preview area to trigger trail updates
+3. Check that the selected canvas mode is appropriate for your setup
+
+### Monitor selection shows empty list
+This typically means the monitor enumeration encountered an issue. Try:
+1. Use **All Monitors** mode as default
+2. Restart OBS
+3. Check the OBS log for monitor enumeration errors
 
 ## License
 
