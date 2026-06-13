@@ -4,6 +4,8 @@
 #include <algorithm> // For std::clamp
 #include <cmath>
 #include <cstring>
+#include <vector>
+#include <string>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -14,8 +16,73 @@
 
 static constexpr const char *SETTING_MODE = "trail_mode";
 static constexpr const char *SETTING_COLOR = "trail_color";
+static constexpr const char *SETTING_CANVAS_MODE = "canvas_mode";
+static constexpr const char *SETTING_SELECTED_MONITOR = "selected_monitor";
+static constexpr const char *SETTING_MOUSEPAD_DPI = "mousepad_dpi";
+static constexpr const char *SETTING_MOUSEPAD_WIDTH = "mousepad_width";
+static constexpr const char *SETTING_MOUSEPAD_HEIGHT = "mousepad_height";
+static constexpr const char *SETTING_BOUNDARY_MODE = "boundary_mode";
+
 static constexpr const char *MODE_SMOKE = "smoke";
 static constexpr const char *MODE_PRECISION = "precision";
+static constexpr const char *CANVAS_MODE_ALL_MONITORS = "all_monitors";
+static constexpr const char *CANVAS_MODE_SPECIFIC_MONITOR = "specific_monitor";
+static constexpr const char *CANVAS_MODE_MOUSEPAD = "mousepad";
+static constexpr const char *BOUNDARY_MODE_DELIMITED = "delimited";
+static constexpr const char *BOUNDARY_MODE_INFINITE_WRAP = "infinite_wrap";
+static constexpr const char *BOUNDARY_MODE_INFINITE_RECENTER = "infinite_recenter";
+
+/**
+ * @brief Monitor information structure for canvas selection.
+ */
+struct MonitorInfo {
+	std::string id;         // Unique identifier (platform-specific)
+	std::string label;      // Display name "Monitor Name (WxH @ X,Y)"
+	int x, y, width, height; // Monitor position and dimensions
+	bool isPrimary;         // Whether this is the primary monitor
+};
+
+/**
+ * @brief Canvas bounds representation.
+ */
+struct CanvasBounds {
+	float width;
+	float height;
+	float offsetX = 0.0f; // For future multi-monitor absolute positioning
+	float offsetY = 0.0f;
+};
+
+/**
+ * @brief Platform-specific helper: Enumerate available monitors.
+ * @param outMonitors Output vector of MonitorInfo structures.
+ */
+static void enumerate_monitors(std::vector<MonitorInfo>& outMonitors);
+
+/**
+ * @brief Map cursor position to canvas based on selected canvas mode.
+ * @param cursorX, cursorY Cursor position in screen coordinates.
+ * @param canvasMode Selected canvas mode.
+ * @param selectedMonitorId Monitor ID if specific monitor mode.
+ * @param monitors List of available monitors.
+ * @param outCanvasBounds Output canvas bounds.
+ * @return Normalized cursor position (0-1 range) to be scaled to OBS canvas.
+ */
+static std::pair<float, float> map_cursor_to_canvas(
+	float cursorX, float cursorY,
+	const char *canvasMode,
+	const char *selectedMonitorId,
+	const std::vector<MonitorInfo>& monitors,
+	CanvasBounds& outCanvasBounds);
+
+/**
+ * @brief Apply boundary mode transformation before scaling to OBS canvas.
+ * @param normX, normY Normalized coordinates (0-1).
+ * @param boundaryMode Boundary behavior mode.
+ * @return Transformed normalized coordinates.
+ */
+static std::pair<float, float> apply_boundary_mode(
+	float normX, float normY,
+	const char *boundaryMode);
 
 /**
  * @brief Context state for the custom OBS Mouse Trail source.
@@ -35,6 +102,23 @@ public:
 	float colorG = 0.8f;
 	float colorB = 1.0f;
 
+	// Canvas mapping configuration
+	std::string canvasMode = CANVAS_MODE_ALL_MONITORS;
+	std::string selectedMonitorId;
+	std::vector<MonitorInfo> availableMonitors;
+	float mousepadDpi = 800.0f;
+	float mousepadWidth = 250.0f;  // mm
+	float mousepadHeight = 250.0f; // mm
+	std::string boundaryMode = BOUNDARY_MODE_DELIMITED;
+
+	// Cached last cursor position for mousepad mode
+	float lastCursorX = 0.0f;
+	float lastCursorY = 0.0f;
+	bool hasLastCursor = false;
+
+	// Cached canvas bounds
+	CanvasBounds currentCanvasBounds{1920.0f, 1080.0f, 0.0f, 0.0f};
+
 	MouseTrailSource(obs_source_t *source) : source(source) {}
 };
 
@@ -49,6 +133,8 @@ static void mouse_trail_apply_settings(MouseTrailSource *src, obs_data_t *settin
 	if (!src || !settings)
 		return;
 
+	bool settingsChanged = false;
+
 	const char *mode = obs_data_get_string(settings, SETTING_MODE);
 	src->smokeMode = (mode && strcmp(mode, MODE_PRECISION) != 0);
 
@@ -57,12 +143,51 @@ static void mouse_trail_apply_settings(MouseTrailSource *src, obs_data_t *settin
 	src->colorR = static_cast<float>(color & 0xFF) / 255.0f;
 	src->colorG = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
 	src->colorB = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
+
+	// Canvas mode
+	const char *newCanvasMode = obs_data_get_string(settings, SETTING_CANVAS_MODE);
+	if (newCanvasMode && src->canvasMode != newCanvasMode) {
+		src->canvasMode = newCanvasMode;
+		settingsChanged = true;
+	}
+
+	// Selected monitor
+	const char *newSelectedMonitor = obs_data_get_string(settings, SETTING_SELECTED_MONITOR);
+	if (newSelectedMonitor && src->selectedMonitorId != newSelectedMonitor) {
+		src->selectedMonitorId = newSelectedMonitor;
+		settingsChanged = true;
+	}
+
+	// Mousepad settings
+	double dpi = obs_data_get_double(settings, SETTING_MOUSEPAD_DPI);
+	if (dpi > 0) src->mousepadDpi = static_cast<float>(dpi);
+
+	double padWidth = obs_data_get_double(settings, SETTING_MOUSEPAD_WIDTH);
+	if (padWidth > 0) src->mousepadWidth = static_cast<float>(padWidth);
+
+	double padHeight = obs_data_get_double(settings, SETTING_MOUSEPAD_HEIGHT);
+	if (padHeight > 0) src->mousepadHeight = static_cast<float>(padHeight);
+
+	// Boundary mode
+	const char *newBoundaryMode = obs_data_get_string(settings, SETTING_BOUNDARY_MODE);
+	if (newBoundaryMode && src->boundaryMode != newBoundaryMode) {
+		src->boundaryMode = newBoundaryMode;
+		settingsChanged = true;
+	}
+
+	// Clear trail if canvas source or mode changed
+	if (settingsChanged) {
+		src->trailManager.clear();
+		src->hasLastCursor = false;
+		obs_log(LOG_INFO, "Canvas settings changed, trail cleared");
+	}
 }
 
 static void *mouse_trail_create(obs_data_t *settings, obs_source_t *source)
 {
 	auto *src = new MouseTrailSource(source);
-	obs_log(LOG_INFO, "mouse trail source created");
+	enumerate_monitors(src->availableMonitors);
+	obs_log(LOG_INFO, "mouse trail source created with %zu monitors", src->availableMonitors.size());
 	mouse_trail_apply_settings(src, settings);
 	return src;
 }
@@ -70,12 +195,13 @@ static void *mouse_trail_create(obs_data_t *settings, obs_source_t *source)
 static void mouse_trail_update(void *data, obs_data_t *settings)
 {
 	auto *src = static_cast<MouseTrailSource*>(data);
+	enumerate_monitors(src->availableMonitors);
 	mouse_trail_apply_settings(src, settings);
 }
 
 static obs_properties_t *mouse_trail_get_properties(void *data)
 {
-	UNUSED_PARAMETER(data);
+	auto *src = static_cast<MouseTrailSource*>(data);
 	obs_properties_t *props = obs_properties_create();
 
 	obs_property_t *modeProp = obs_properties_add_list(
@@ -91,6 +217,63 @@ static obs_properties_t *mouse_trail_get_properties(void *data)
 
 	obs_properties_add_color(props, SETTING_COLOR, obs_module_text("trail.color"));
 
+	// Canvas mode selection
+	obs_property_t *canvasModeProp = obs_properties_add_list(
+		props,
+		SETTING_CANVAS_MODE,
+		obs_module_text("canvas.mode"),
+		OBS_COMBO_TYPE_LIST,
+		OBS_COMBO_FORMAT_STRING);
+	if (canvasModeProp) {
+		obs_property_list_add_string(canvasModeProp, obs_module_text("canvas.mode.all_monitors"), 
+			CANVAS_MODE_ALL_MONITORS);
+		obs_property_list_add_string(canvasModeProp, obs_module_text("canvas.mode.specific_monitor"), 
+			CANVAS_MODE_SPECIFIC_MONITOR);
+		obs_property_list_add_string(canvasModeProp, obs_module_text("canvas.mode.mousepad"), 
+			CANVAS_MODE_MOUSEPAD);
+	}
+
+	// Monitor selection dropdown
+	obs_property_t *monitorProp = obs_properties_add_list(
+		props,
+		SETTING_SELECTED_MONITOR,
+		obs_module_text("canvas.monitor"),
+		OBS_COMBO_TYPE_LIST,
+		OBS_COMBO_FORMAT_STRING);
+	if (monitorProp && src) {
+		for (const auto& monitor : src->availableMonitors) {
+			obs_property_list_add_string(monitorProp, monitor.label.c_str(), monitor.id.c_str());
+		}
+	}
+
+	// Mousepad DPI setting
+	obs_properties_add_float(props, SETTING_MOUSEPAD_DPI, obs_module_text("mousepad.dpi"),
+		100.0, 3200.0, 1.0);
+
+	// Mousepad width (mm)
+	obs_properties_add_float(props, SETTING_MOUSEPAD_WIDTH, obs_module_text("mousepad.width"),
+		50.0, 1000.0, 1.0);
+
+	// Mousepad height (mm)
+	obs_properties_add_float(props, SETTING_MOUSEPAD_HEIGHT, obs_module_text("mousepad.height"),
+		50.0, 1000.0, 1.0);
+
+	// Boundary mode selection
+	obs_property_t *boundaryModeProp = obs_properties_add_list(
+		props,
+		SETTING_BOUNDARY_MODE,
+		obs_module_text("boundary.mode"),
+		OBS_COMBO_TYPE_LIST,
+		OBS_COMBO_FORMAT_STRING);
+	if (boundaryModeProp) {
+		obs_property_list_add_string(boundaryModeProp, obs_module_text("boundary.mode.delimited"), 
+			BOUNDARY_MODE_DELIMITED);
+		obs_property_list_add_string(boundaryModeProp, obs_module_text("boundary.mode.infinite_wrap"), 
+			BOUNDARY_MODE_INFINITE_WRAP);
+		obs_property_list_add_string(boundaryModeProp, obs_module_text("boundary.mode.infinite_recenter"), 
+			BOUNDARY_MODE_INFINITE_RECENTER);
+	}
+
 	return props;
 }
 
@@ -98,6 +281,212 @@ static void mouse_trail_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_string(settings, SETTING_MODE, MODE_SMOKE);
 	obs_data_set_default_int(settings, SETTING_COLOR, 0x00CCFF);
+	obs_data_set_default_string(settings, SETTING_CANVAS_MODE, CANVAS_MODE_ALL_MONITORS);
+	obs_data_set_default_double(settings, SETTING_MOUSEPAD_DPI, 800.0);
+	obs_data_set_default_double(settings, SETTING_MOUSEPAD_WIDTH, 250.0);
+	obs_data_set_default_double(settings, SETTING_MOUSEPAD_HEIGHT, 250.0);
+	obs_data_set_default_string(settings, SETTING_BOUNDARY_MODE, BOUNDARY_MODE_DELIMITED);
+}
+
+// ============================================================================
+// PLATFORM-SPECIFIC IMPLEMENTATIONS
+// ============================================================================
+
+#ifdef _WIN32
+
+/**
+ * @brief Windows: Enumerate all monitors.
+ */
+static void enumerate_monitors(std::vector<MonitorInfo>& outMonitors)
+{
+	outMonitors.clear();
+
+	// Get virtual screen bounds
+	int virtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+	int virtualTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+	int virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	int virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+	// Add "All Monitors" option first
+	MonitorInfo allMonitors;
+	allMonitors.id = "all_monitors_combined";
+	allMonitors.label = "All Monitors (" + std::to_string(virtualWidth) + "x" + std::to_string(virtualHeight) + ")";
+	allMonitors.x = virtualLeft;
+	allMonitors.y = virtualTop;
+	allMonitors.width = virtualWidth;
+	allMonitors.height = virtualHeight;
+	allMonitors.isPrimary = false;
+	outMonitors.push_back(allMonitors);
+
+	// Enumerate individual monitors
+	MONITORINFOEX miex;
+	ZeroMemory(&miex, sizeof(miex));
+	miex.cbSize = sizeof(miex);
+
+	auto enumProc = [](HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMonitor, LPARAM dwData) -> BOOL {
+		UNUSED_PARAMETER(hdcMonitor);
+		auto *monitors = reinterpret_cast<std::vector<MonitorInfo>*>(dwData);
+
+		MONITORINFOEX miex;
+		ZeroMemory(&miex, sizeof(miex));
+		miex.cbSize = sizeof(miex);
+		if (!GetMonitorInfoA(hMonitor, (MONITORINFO*)&miex))
+			return TRUE;
+
+		MonitorInfo info;
+		info.id = miex.szDevice;
+		int width = lprcMonitor->right - lprcMonitor->left;
+		int height = lprcMonitor->bottom - lprcMonitor->top;
+		info.label = std::string(miex.szDevice) + " (" + std::to_string(width) + "x" + std::to_string(height) + 
+					 " @ " + std::to_string(lprcMonitor->left) + "," + std::to_string(lprcMonitor->top) + ")";
+		info.x = lprcMonitor->left;
+		info.y = lprcMonitor->top;
+		info.width = width;
+		info.height = height;
+		info.isPrimary = (miex.dwFlags & MONITORINFOF_PRIMARY) != 0;
+
+		monitors->push_back(info);
+		return TRUE;
+	};
+
+	EnumDisplayMonitors(NULL, NULL, enumProc, reinterpret_cast<LPARAM>(&outMonitors));
+
+	obs_log(LOG_INFO, "Enumerated %zu monitors", outMonitors.size());
+}
+
+#else
+
+/**
+ * @brief Fallback: Enumerate monitors on macOS/Linux.
+ * For now, returns a single virtual monitor.
+ */
+static void enumerate_monitors(std::vector<MonitorInfo>& outMonitors)
+{
+	outMonitors.clear();
+	
+	MonitorInfo fallback;
+	fallback.id = "fallback_monitor";
+	fallback.label = "Primary Monitor (1920x1080)";
+	fallback.x = 0;
+	fallback.y = 0;
+	fallback.width = 1920;
+	fallback.height = 1080;
+	fallback.isPrimary = true;
+	outMonitors.push_back(fallback);
+
+	obs_log(LOG_WARNING, "Using fallback monitor enumeration");
+}
+
+#endif
+
+// ============================================================================
+// CANVAS MAPPING HELPERS
+// ============================================================================
+
+/**
+ * @brief Map cursor to canvas based on mode.
+ */
+static std::pair<float, float> map_cursor_to_canvas(
+	float cursorX, float cursorY,
+	const char *canvasMode,
+	const char *selectedMonitorId,
+	const std::vector<MonitorInfo>& monitors,
+	CanvasBounds& outCanvasBounds)
+{
+	if (!canvasMode) {
+		return {0.0f, 0.0f};
+	}
+
+	// All monitors mode: map to virtual screen bounds
+	if (strcmp(canvasMode, CANVAS_MODE_ALL_MONITORS) == 0) {
+		int virtualLeft = 0;
+		int virtualTop = 0;
+		int virtualWidth = 1920;
+		int virtualHeight = 1080;
+
+		#ifdef _WIN32
+		virtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+		virtualTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+		virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+		virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+		#endif
+
+		outCanvasBounds.width = static_cast<float>(virtualWidth);
+		outCanvasBounds.height = static_cast<float>(virtualHeight);
+		outCanvasBounds.offsetX = static_cast<float>(virtualLeft);
+		outCanvasBounds.offsetY = static_cast<float>(virtualTop);
+
+		if (virtualWidth > 0 && virtualHeight > 0) {
+			float normX = (cursorX - virtualLeft) / virtualWidth;
+			float normY = (cursorY - virtualTop) / virtualHeight;
+			return {normX, normY};
+		}
+		return {0.0f, 0.0f};
+	}
+
+	// Specific monitor mode: map to selected monitor bounds
+	if (strcmp(canvasMode, CANVAS_MODE_SPECIFIC_MONITOR) == 0 && selectedMonitorId) {
+		for (const auto& monitor : monitors) {
+			if (monitor.id == selectedMonitorId) {
+				outCanvasBounds.width = static_cast<float>(monitor.width);
+				outCanvasBounds.height = static_cast<float>(monitor.height);
+				outCanvasBounds.offsetX = static_cast<float>(monitor.x);
+				outCanvasBounds.offsetY = static_cast<float>(monitor.y);
+
+				float normX = (cursorX - monitor.x) / static_cast<float>(monitor.width);
+				float normY = (cursorY - monitor.y) / static_cast<float>(monitor.height);
+				return {normX, normY};
+			}
+		}
+	}
+
+	// Mousepad mode: Not handled here, returns zero delta
+	// (handled separately in tick with delta tracking)
+	return {0.0f, 0.0f};
+}
+
+/**
+ * @brief Apply boundary transformation.
+ */
+static std::pair<float, float> apply_boundary_mode(
+	float normX, float normY,
+	const char *boundaryMode)
+{
+	if (!boundaryMode)
+		return {normX, normY};
+
+	// Delimited: clamp to 0-1
+	if (strcmp(boundaryMode, BOUNDARY_MODE_DELIMITED) == 0) {
+		return {
+			std::clamp(normX, 0.0f, 1.0f),
+			std::clamp(normY, 0.0f, 1.0f)
+		};
+	}
+
+	// Infinite Wrap: wrap around
+	if (strcmp(boundaryMode, BOUNDARY_MODE_INFINITE_WRAP) == 0) {
+		float x = fmod(normX, 1.0f);
+		float y = fmod(normY, 1.0f);
+		if (x < 0.0f) x += 1.0f;
+		if (y < 0.0f) y += 1.0f;
+		return {x, y};
+	}
+
+	// Infinite Recenter: jump to opposite side and continue
+	if (strcmp(boundaryMode, BOUNDARY_MODE_INFINITE_RECENTER) == 0) {
+		float x = normX;
+		float y = normY;
+		
+		if (x < 0.0f) x = 1.0f + fmod(x, 1.0f);
+		else if (x > 1.0f) x = fmod(x, 1.0f);
+
+		if (y < 0.0f) y = 1.0f + fmod(y, 1.0f);
+		else if (y > 1.0f) y = fmod(y, 1.0f);
+
+		return {x, y};
+	}
+
+	return {normX, normY};
 }
 
 static void mouse_trail_destroy(void *data)
@@ -139,43 +528,73 @@ static void mouse_trail_tick(void *data, float seconds)
 	float mouseY = 0.0f;
 	bool haveMappedCursor = false;
 
+	struct obs_video_info ovi;
+	if (!obs_get_video_info(&ovi))
+		return;
+
 #ifdef _WIN32
 	POINT mousePos;
 	if (GetCursorPos(&mousePos)) {
-		// Map desktop coordinates to OBS base canvas coordinates so the source always
-		// renders inside its own bounds, even with multi-monitor virtual desktop offsets.
-		struct obs_video_info ovi;
-		if (obs_get_video_info(&ovi)) {
-			int virtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
-			int virtualTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
-			int virtualWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-			int virtualHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+		// Use new mapping pipeline
+		if (strcmp(src->canvasMode.c_str(), CANVAS_MODE_MOUSEPAD) == 0) {
+			// Mousepad mode: calculate delta movement
+			float deltaX = mousePos.x - src->lastCursorX;
+			float deltaY = mousePos.y - src->lastCursorY;
 
-			if (virtualWidth > 0 && virtualHeight > 0) {
-				float normX = static_cast<float>(mousePos.x - virtualLeft) / static_cast<float>(virtualWidth);
-				float normY = static_cast<float>(mousePos.y - virtualTop) / static_cast<float>(virtualHeight);
+			// Convert screen pixels to millimeters based on DPI
+			// DPI = pixels per inch, 1 inch = 25.4 mm
+			float mmPerPixel = 25.4f / src->mousepadDpi;
+			float deltaMm_X = deltaX * mmPerPixel;
+			float deltaMm_Y = deltaY * mmPerPixel;
 
-				normX = std::clamp(normX, 0.0f, 1.0f);
-				normY = std::clamp(normY, 0.0f, 1.0f);
+			// Calculate normalized movement relative to mousepad size
+			float normDelta_X = deltaMm_X / src->mousepadWidth;
+			float normDelta_Y = deltaMm_Y / src->mousepadHeight;
 
-				mouseX = normX * static_cast<float>(ovi.base_width);
-				mouseY = normY * static_cast<float>(ovi.base_height);
-				haveMappedCursor = true;
-			}
-		}
+			// Update cursor position with wrapping
+			float normX = fmod(src->lastCursorX / src->currentCanvasBounds.width + normDelta_X, 1.0f);
+			float normY = fmod(src->lastCursorY / src->currentCanvasBounds.height + normDelta_Y, 1.0f);
+			if (normX < 0.0f) normX += 1.0f;
+			if (normY < 0.0f) normY += 1.0f;
 
-		if (!haveMappedCursor) {
-			mouseX = static_cast<float>(mousePos.x);
-			mouseY = static_cast<float>(mousePos.y);
+			// Apply boundary mode
+			auto [boundaryX, boundaryY] = apply_boundary_mode(normX, normY, src->boundaryMode.c_str());
+			mouseX = boundaryX * ovi.base_width;
+			mouseY = boundaryY * ovi.base_height;
+
+			src->lastCursorX = mousePos.x;
+			src->lastCursorY = mousePos.y;
+			haveMappedCursor = true;
+		} else {
+			// Monitor-based modes
+			auto [normX, normY] = map_cursor_to_canvas(
+				static_cast<float>(mousePos.x),
+				static_cast<float>(mousePos.y),
+				src->canvasMode.c_str(),
+				src->selectedMonitorId.c_str(),
+				src->availableMonitors,
+				src->currentCanvasBounds
+			);
+
+			// Apply boundary mode
+			auto [boundaryX, boundaryY] = apply_boundary_mode(normX, normY, src->boundaryMode.c_str());
+
+			// Scale to OBS canvas
+			mouseX = boundaryX * ovi.base_width;
+			mouseY = boundaryY * ovi.base_height;
+			haveMappedCursor = true;
 		}
 	}
 #else
-	// macOS/Linux implementation helper placeholder:
-	// E.g. on macOS, retrieve pointer via CGEventSourceGetPixmapCursorPosition(kCGEventSourceStateCombinedSessionState)
+	// macOS/Linux: fallback to simple mapping
+	// TODO: Implement platform-specific cursor and monitor enumeration
+	haveMappedCursor = false;
 #endif
 
 	// 1. Add point to queue
-	src->trailManager.addPoint(mouseX, mouseY);
+	if (haveMappedCursor) {
+		src->trailManager.addPoint(mouseX, mouseY);
+	}
 
 	// 2. Clean up aged points
 	src->trailManager.cleanup(src->trailDurationNs);
@@ -188,7 +607,7 @@ static void mouse_trail_tick(void *data, float seconds)
 	uint64_t now = os_gettime_ns();
 	if (now - lastTickLogNs > 2000000000ULL) {
 		lastTickLogNs = now;
-		obs_log(LOG_INFO, "tick: mapped cursor x=%.1f y=%.1f", mouseX, mouseY);
+		obs_log(LOG_INFO, "tick: mapped cursor x=%.1f y=%.1f mode=%s", mouseX, mouseY, src->canvasMode.c_str());
 	}
 }
 
