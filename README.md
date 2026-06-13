@@ -38,7 +38,10 @@ git push origin v1.0.0
 
 - Smooth mouse trail rendering
 - Age-based fade-out (newer points are brighter)
-- Upward drift (anti-gravity effect) on older points
+- Selectable trail behavior modes:
+   - Smoke mode: upward drift (anti-gravity effect) on older points
+   - Precision mode: no drift, trail fades in-place
+- Configurable trail color in source properties
 - Thread-safe trail management
 - Frame-rate-independent updates using OBS `video_tick` delta time
 
@@ -49,6 +52,78 @@ git push origin v1.0.0
 - `src/trail-manager.hpp`: thread-safe trail data structure + physics
 - `data/locale/en-US.ini`: locale file for the plugin data path
 - `CMakeLists.txt`: standalone MinGW build + OBS deployment copy steps
+- `.env`: local build/deploy settings (OBS path and optional overrides)
+- `scripts/build_and_deploy.py`: cross-platform build + deploy script
+- `scripts/build_and_deploy.ps1`: Windows PowerShell wrapper
+- `scripts/build_and_deploy.cmd`: Windows Command Prompt wrapper
+- `scripts/build_and_deploy.sh`: macOS/Linux shell wrapper
+
+## Cross-Platform Build And Deploy (.env + Script)
+
+This repository includes a single Python script that runs on Windows, macOS, and Linux:
+
+- `scripts/build_and_deploy.py`
+
+It does three things:
+
+1. Configures CMake with your `.env` values
+2. Builds the plugin
+3. Copies the plugin and locale files into your OBS installation
+
+### 1) Configure `.env`
+
+Edit `.env` and set at least:
+
+- `OBS_ROOT`: root of your OBS installation
+
+Examples:
+
+- Windows: `OBS_ROOT=D:/Programs/OBS28/obs-studio`
+- Linux: `OBS_ROOT=/usr`
+- macOS: `OBS_ROOT=/Applications/OBS.app`
+
+Optional settings in `.env`:
+
+- `BUILD_DIR` (default: `build`)
+- `CMAKE_BUILD_TYPE` (default: `Release`)
+- `CMAKE_GENERATOR` and `CMAKE_BUILD_CONFIG`
+- `OBS_HEADERS_DIR`, `OBS_CONFIG_DIR`, `OBS_LIB_PATH`
+- `MINGW_BIN` (Windows runtime DLL copy source)
+
+### 2) Run The Script
+
+From repo root:
+
+```powershell
+python scripts/build_and_deploy.py
+```
+
+On macOS/Linux you can also use:
+
+```bash
+python3 scripts/build_and_deploy.py
+```
+
+Or use the wrappers:
+
+```powershell
+./scripts/build_and_deploy.ps1
+```
+
+```bat
+scripts\build_and_deploy.cmd
+```
+
+```bash
+bash scripts/build_and_deploy.sh
+```
+
+### 3) Restart OBS And Test
+
+1. Close OBS before running the script (to avoid file locks)
+2. Run the script
+3. Start OBS and add **Dynamic Mouse Trail**
+4. Test **Trail Mode** and **Trail Color** in source properties
 
 ## Prerequisites (Windows, MinGW path)
 
@@ -120,6 +195,7 @@ On successful build, CMake post-build steps will copy:
 2. Launch OBS.
 3. Add source -> **Dynamic Mouse Trail**.
 4. Move your mouse and verify the trail appears.
+5. Open the source properties to set **Trail Mode** and **Trail Color**.
 
 If the source does not appear, check:
 

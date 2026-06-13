@@ -3,6 +3,7 @@
 #include <graphics/vec4.h>
 #include <algorithm> // For std::clamp
 #include <cmath>
+#include <cstring>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -10,6 +11,11 @@
 
 #include "plugin-support.h"
 #include "trail-manager.hpp"
+
+static constexpr const char *SETTING_MODE = "trail_mode";
+static constexpr const char *SETTING_COLOR = "trail_color";
+static constexpr const char *MODE_SMOKE = "smoke";
+static constexpr const char *MODE_PRECISION = "precision";
 
 /**
  * @brief Context state for the custom OBS Mouse Trail source.
@@ -22,6 +28,7 @@ public:
 	// Configuration settings
 	float gravityFactor = 150.0f;             // Speed of anti-gravity upward drift (pixels/sec^2)
 	uint64_t trailDurationNs = 1000000000ULL; // Lifetime of points in nanoseconds (1 second)
+	bool smokeMode = true;
 
 	// Trail appearance properties
 	float colorR = 0.0f;
@@ -34,20 +41,63 @@ public:
 static const char *mouse_trail_get_name(void *unused)
 {
 	UNUSED_PARAMETER(unused);
-	return "Dynamic Mouse Trail";
+	return obs_module_text("mouse_trail");
+}
+
+static void mouse_trail_apply_settings(MouseTrailSource *src, obs_data_t *settings)
+{
+	if (!src || !settings)
+		return;
+
+	const char *mode = obs_data_get_string(settings, SETTING_MODE);
+	src->smokeMode = (mode && strcmp(mode, MODE_PRECISION) != 0);
+
+	const uint32_t color = static_cast<uint32_t>(obs_data_get_int(settings, SETTING_COLOR));
+	// OBS color property stores packed color as BBGGRR.
+	src->colorR = static_cast<float>(color & 0xFF) / 255.0f;
+	src->colorG = static_cast<float>((color >> 8) & 0xFF) / 255.0f;
+	src->colorB = static_cast<float>((color >> 16) & 0xFF) / 255.0f;
 }
 
 static void *mouse_trail_create(obs_data_t *settings, obs_source_t *source)
 {
 	auto *src = new MouseTrailSource(source);
 	obs_log(LOG_INFO, "mouse trail source created");
-	
-	// Note: In your plugin, read initial parameters from settings here:
-	// src->gravityFactor = (float)obs_data_get_double(settings, "gravity_factor");
-	// src->trailDurationNs = (uint64_t)(obs_data_get_double(settings, "duration_seconds") * 1'000'000'000.0);
-
-	UNUSED_PARAMETER(settings);
+	mouse_trail_apply_settings(src, settings);
 	return src;
+}
+
+static void mouse_trail_update(void *data, obs_data_t *settings)
+{
+	auto *src = static_cast<MouseTrailSource*>(data);
+	mouse_trail_apply_settings(src, settings);
+}
+
+static obs_properties_t *mouse_trail_get_properties(void *data)
+{
+	UNUSED_PARAMETER(data);
+	obs_properties_t *props = obs_properties_create();
+
+	obs_property_t *modeProp = obs_properties_add_list(
+		props,
+		SETTING_MODE,
+		obs_module_text("trail.mode"),
+		OBS_COMBO_TYPE_LIST,
+		OBS_COMBO_FORMAT_STRING);
+	if (modeProp) {
+		obs_property_list_add_string(modeProp, obs_module_text("trail.mode.smoke"), MODE_SMOKE);
+		obs_property_list_add_string(modeProp, obs_module_text("trail.mode.precision"), MODE_PRECISION);
+	}
+
+	obs_properties_add_color(props, SETTING_COLOR, obs_module_text("trail.color"));
+
+	return props;
+}
+
+static void mouse_trail_get_defaults(obs_data_t *settings)
+{
+	obs_data_set_default_string(settings, SETTING_MODE, MODE_SMOKE);
+	obs_data_set_default_int(settings, SETTING_COLOR, 0x00CCFF);
 }
 
 static void mouse_trail_destroy(void *data)
@@ -131,7 +181,8 @@ static void mouse_trail_tick(void *data, float seconds)
 	src->trailManager.cleanup(src->trailDurationNs);
 
 	// 3. Move points upward simulating anti-gravity (frame-rate independent)
-	src->trailManager.applyGravity(src->gravityFactor, seconds);
+	if (src->smokeMode)
+		src->trailManager.applyGravity(src->gravityFactor, seconds);
 
 	static uint64_t lastTickLogNs = 0;
 	uint64_t now = os_gettime_ns();
@@ -225,6 +276,9 @@ struct obs_source_info mouse_trail_info = {
 	.destroy = mouse_trail_destroy,
 	.get_width = mouse_trail_get_width,
 	.get_height = mouse_trail_get_height,
+	.get_defaults = mouse_trail_get_defaults,
+	.get_properties = mouse_trail_get_properties,
+	.update = mouse_trail_update,
 	.video_tick = mouse_trail_tick,
 	.video_render = mouse_trail_render,
 };

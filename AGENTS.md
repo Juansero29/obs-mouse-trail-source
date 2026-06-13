@@ -17,6 +17,7 @@ This file helps any coding agent quickly understand and safely modify this repos
 - Localized display name: `data/locale/en-US.ini`
 - Build and deployment behavior: `CMakeLists.txt`
 - Release automation: `.github/workflows/release.yml`
+- Troubleshooting playbook: `AGENT_TROUBLESHOOTING.md`
 
 ## Build Model
 
@@ -56,6 +57,7 @@ CMake post-build copies artifacts into an OBS root structure:
 ## Suggested Agent Task Sequence
 
 1. Read `README.md` and this file.
-2. Inspect current rendering path in `src/trail-source.cpp`.
-3. Make minimal changes.
-4. Keep README and release notes in sync if install/build behavior changes.
+2. If debugging, read `AGENT_TROUBLESHOOTING.md` before editing render/deploy logic.
+3. Inspect current rendering path in `src/trail-source.cpp`.
+4. Make minimal changes.
+5. Keep README and release notes in sync if install/build behavior changes.
