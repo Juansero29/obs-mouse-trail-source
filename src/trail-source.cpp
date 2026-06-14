@@ -1096,6 +1096,19 @@ static std::pair<float, float> apply_boundary_mode(
 	return {normX, normY};
 }
 
+static bool boundary_transition_is_teleport(float normX, float normY, const char *boundaryMode)
+{
+	if (!boundaryMode)
+		return false;
+
+	const bool outOfBounds = (normX < 0.0f || normX > 1.0f || normY < 0.0f || normY > 1.0f);
+	if (!outOfBounds)
+		return false;
+
+	return strcmp(boundaryMode, BOUNDARY_MODE_INFINITE_WRAP) == 0 ||
+		strcmp(boundaryMode, BOUNDARY_MODE_INFINITE_RECENTER) == 0;
+}
+
 static void mouse_trail_destroy(void *data)
 {
 	auto *src = static_cast<MouseTrailSource*>(data);
@@ -1140,6 +1153,7 @@ static void mouse_trail_tick(void *data, float seconds)
 	float mouseX = 0.0f;
 	float mouseY = 0.0f;
 	bool haveMappedCursor = false;
+	bool breakBeforePoint = false;
 
 	struct obs_video_info ovi;
 	if (!obs_get_video_info(&ovi))
@@ -1190,6 +1204,7 @@ static void mouse_trail_tick(void *data, float seconds)
 
 			float normX = src->mousepadNormX + normDelta_X;
 			float normY = src->mousepadNormY + normDelta_Y;
+			breakBeforePoint = boundary_transition_is_teleport(normX, normY, src->boundaryMode.c_str());
 
 			auto [boundaryX, boundaryY] = apply_boundary_mode(normX, normY, src->boundaryMode.c_str());
 			src->mousepadNormX = boundaryX;
@@ -1212,6 +1227,8 @@ static void mouse_trail_tick(void *data, float seconds)
 				src->currentCanvasBounds
 			);
 
+			breakBeforePoint = boundary_transition_is_teleport(normX, normY, src->boundaryMode.c_str());
+
 			auto [boundaryX, boundaryY] = apply_boundary_mode(normX, normY, src->boundaryMode.c_str());
 			mouseX = boundaryX * ovi.base_width;
 			mouseY = boundaryY * ovi.base_height;
@@ -1229,7 +1246,7 @@ static void mouse_trail_tick(void *data, float seconds)
 		if (src->persistenceMode == PERSISTENCE_MODE_LASER) {
 			src->trailManager.clear();
 		}
-		src->trailManager.addPoint(mouseX, mouseY);
+		src->trailManager.addPoint(mouseX, mouseY, breakBeforePoint);
 	}
 
 	// 2. Clean up aged points
@@ -1291,6 +1308,8 @@ static void mouse_trail_render(void *data, gs_effect_t *effect)
 			for (size_t i = 1; i < points.size(); i++) {
 				const Point &a = points[i - 1];
 				const Point &b = points[i];
+				if (b.breakBefore)
+					continue;
 
 				float dx = b.x - a.x;
 				float dy = b.y - a.y;
