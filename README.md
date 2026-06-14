@@ -16,6 +16,8 @@ Official prebuilt release artifacts are currently Windows x64 only.
 
 ## Quick Install (No Build Tools)
 
+> ⚠️ Always run OBS as administrator to ensure the plugin works correctly
+
 You do not need to build from source to use this plugin on Windows x64.
 
 1. Open the repo Releases page on GitHub.
@@ -23,7 +25,7 @@ You do not need to build from source to use this plugin on Windows x64.
 3. Close OBS completely.
 4. Extract the ZIP into your OBS install root.
    - Example: `C:\Program Files\obs-studio`
-5. Start OBS and add source -> **Dynamic Mouse Trail**.
+5. Start OBS **ALWAYS RUN AS ADMINISTRATOR** and add source -> **Dynamic Mouse Trail**.
 
 The release ZIP is already laid out with the folders OBS expects:
 
