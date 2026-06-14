@@ -4,6 +4,8 @@
 
 A custom OBS Studio input source plugin that renders a smooth, fading mouse trail.
 
+Official prebuilt release artifacts are currently Windows x64 only.
+
 ![Dynamic Mouse Trail Demo](media/obs-mouse-trail-demo.gif)
 
 ## Video Demos
@@ -14,7 +16,7 @@ A custom OBS Studio input source plugin that renders a smooth, fading mouse trai
 
 ## Quick Install (No Build Tools)
 
-You do not need to build from source to use this plugin.
+You do not need to build from source to use this plugin on Windows x64.
 
 1. Open the repo Releases page on GitHub.
 2. Download the latest `mouse-trail-windows-x64-<version>.zip`.
@@ -28,6 +30,8 @@ The release ZIP is already laid out with the folders OBS expects:
 - `obs-plugins/64bit/mouse_trail.dll`
 - `data/obs-plugins/mouse_trail/locale/en-US.ini`
 - `bin/64bit/*.dll` (required MinGW runtime DLLs)
+
+macOS and Linux currently require building from source.
 
 ## Maintainer Release Flow (Tags)
 
@@ -77,7 +81,7 @@ git push origin v1.0.0
 - **Thread-Safe Architecture**: Safe concurrent access to trail data
 - **Frame-Rate Independent Updates**: Uses OBS `video_tick` delta time for smooth behavior at any FPS
 - **Multi-Monitor Support**: Full monitor enumeration and selection
-- **Cross-Platform**: Windows (full support), macOS/Linux (fallback support)
+- **Platform Scope**: Official release binaries for Windows x64; macOS/Linux are source-build best effort with fallback behavior
 
 ## Repository Layout
 
@@ -371,9 +375,10 @@ Contributions are welcome.
 - Cursor position via `GetCursorPos`
 - Multi-monitor support with individual monitor selection
 - Windows raw input for precision mousepad mode
+- Official GitHub release artifacts are published for Windows x64
 
 ### macOS/Linux
-- ⚠️ Limited support (fallback mode)
+- ⚠️ Source-build support only (no official release binaries yet)
 - Mousepad mode uses approximation (not raw input)
 - Monitor selection shows single fallback monitor
 - Contributions welcome for platform-specific implementations
