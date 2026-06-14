@@ -2,6 +2,11 @@ name: Release
 
 on:
   workflow_call:
+    inputs:
+      release_ref:
+        description: Tag or ref to build and release (example: v1.0.0)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
 
       - name: Setup MSYS2 + MinGW
         uses: msys2/setup-msys2@v2
@@ -32,23 +39,26 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force .deps/lib | Out-Null
           New-Item -ItemType Directory -Force .deps/tmp | Out-Null
-          New-Item -ItemType Directory -Force .deps/obs-studio-src/build_x64/config | Out-Null
 
       - name: Download OBS source headers
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/archive/refs/tags/31.1.1.zip" -OutFile .deps/obs-studio.zip
+          if (Test-Path .deps/obs-studio-31.1.1) {
+            Remove-Item -Recurse -Force .deps/obs-studio-31.1.1
+          }
           Expand-Archive -Path .deps/obs-studio.zip -DestinationPath .deps
           if (Test-Path .deps/obs-studio-src) {
             Remove-Item -Recurse -Force .deps/obs-studio-src
           }
           $extracted = Get-ChildItem .deps -Directory | Where-Object { $_.Name -like 'obs-studio-*' -and $_.Name -ne 'obs-studio-src' } | Select-Object -First 1
           if (-not $extracted) { throw "Extracted OBS source folder not found" }
-          Rename-Item $extracted.FullName .deps/obs-studio-src
+          Move-Item -Path $extracted.FullName -Destination .deps/obs-studio-src
 
       - name: Create minimal obsconfig.h
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force .deps/obs-studio-src/build_x64/config | Out-Null
           @'
           #pragma once
           #define OBS_VERSION "31.1.1"
@@ -63,6 +73,9 @@ jobs:
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/31.1.1/OBS-Studio-31.1.1-Windows.zip" -OutFile .deps/obs-portable.zip
+          if (Test-Path .deps/obs-portable) {
+            Remove-Item -Recurse -Force .deps/obs-portable
+          }
           Expand-Archive -Path .deps/obs-portable.zip -DestinationPath .deps/obs-portable
           $obsDll = Get-ChildItem .deps/obs-portable -Recurse -Filter obs.dll | Select-Object -First 1
           if (-not $obsDll) { throw "obs.dll not found in downloaded package" }
@@ -92,13 +105,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release_artifacts | Out-Null
-          $zipName = "mouse-trail-windows-x64-${{ github.ref_name }}.zip"
+          $zipName = "mouse-trail-windows-x64-${{ inputs.release_ref }}.zip"
           Compress-Archive -Path release_root/obs-plugins,release_root/data,release_root/bin -DestinationPath (Join-Path release_artifacts $zipName)
           "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_ref }}
           generate_release_notes: true
           files: |
             release_artifacts/${{ env.ZIP_NAME }}
