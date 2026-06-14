@@ -1,0 +1,11 @@
+name: Release Runner
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  execute-release:
+    uses: ./.github/workflows/release.yml
