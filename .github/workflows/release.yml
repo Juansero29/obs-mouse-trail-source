@@ -90,7 +90,24 @@ jobs:
       - name: Download obs.dll (portable package)
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/releases/download/31.1.1/OBS-Studio-31.1.1-Windows.zip" -OutFile .deps/obs-portable.zip
+          $candidates = @(
+            "https://github.com/obsproject/obs-studio/releases/download/31.1.1/OBS-Studio-31.1.1-Windows-x64.zip",
+            "https://github.com/obsproject/obs-studio/releases/download/31.1.1/OBS-Studio-31.1.1-Windows.zip"
+          )
+          $downloaded = $false
+          foreach ($url in $candidates) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile .deps/obs-portable.zip -ErrorAction Stop
+              $downloaded = $true
+              Write-Host "Downloaded OBS package from: $url"
+              break
+            } catch {
+              Write-Host "OBS package not found at: $url"
+            }
+          }
+          if (-not $downloaded) {
+            throw "Failed to download OBS Windows package from all known URLs."
+          }
           if (Test-Path .deps/obs-portable) {
             Remove-Item -Recurse -Force .deps/obs-portable
           }

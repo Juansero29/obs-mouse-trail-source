@@ -1,6 +1,16 @@
 # OBS Dynamic Mouse Trail Source
 
+[![Release](https://github.com/Juansero29/obs-mouse-trail-source/actions/workflows/release.yml/badge.svg)](https://github.com/Juansero29/obs-mouse-trail-source/actions/workflows/release.yml)
+
 A custom OBS Studio input source plugin that renders a smooth, fading mouse trail.
+
+![Dynamic Mouse Trail Demo](media/obs-mouse-trail-demo.gif)
+
+## Video Demos
+
+[![Demo Video 1](https://img.youtube.com/vi/rg75-mgQCg0/hqdefault.jpg)](https://youtu.be/rg75-mgQCg0)
+
+[![Demo Video 2](https://img.youtube.com/vi/LNiuHOJXUm4/hqdefault.jpg)](https://youtu.be/LNiuHOJXUm4)
 
 ## Quick Install (No Build Tools)
 
