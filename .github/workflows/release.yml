@@ -39,7 +39,12 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/archive/refs/tags/31.1.1.zip" -OutFile .deps/obs-studio.zip
           Expand-Archive -Path .deps/obs-studio.zip -DestinationPath .deps
-          Rename-Item .deps/obs-studio-31.1.1 .deps/obs-studio-src
+          if (Test-Path .deps/obs-studio-src) {
+            Remove-Item -Recurse -Force .deps/obs-studio-src
+          }
+          $extracted = Get-ChildItem .deps -Directory | Where-Object { $_.Name -like 'obs-studio-*' -and $_.Name -ne 'obs-studio-src' } | Select-Object -First 1
+          if (-not $extracted) { throw "Extracted OBS source folder not found" }
+          Rename-Item $extracted.FullName .deps/obs-studio-src
 
       - name: Create minimal obsconfig.h
         shell: pwsh
