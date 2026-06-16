@@ -1,23 +1,39 @@
 # OBS Dynamic Mouse Trail Source
 
+[![Release](https://github.com/Juansero29/obs-mouse-trail-source/actions/workflows/release.yml/badge.svg)](https://github.com/Juansero29/obs-mouse-trail-source/actions/workflows/release.yml)
+
 A custom OBS Studio input source plugin that renders a smooth, fading mouse trail.
+
+Official prebuilt release artifacts are currently Windows x64 only.
+
+![Dynamic Mouse Trail Demo](media/obs-mouse-trail-demo.gif)
+
+## Video Demos
+
+[![Demo Video 1](https://img.youtube.com/vi/rg75-mgQCg0/hqdefault.jpg)](https://youtu.be/rg75-mgQCg0)
+
+[![Demo Video 2](https://img.youtube.com/vi/LNiuHOJXUm4/hqdefault.jpg)](https://youtu.be/LNiuHOJXUm4)
 
 ## Quick Install (No Build Tools)
 
-You do not need to build from source to use this plugin.
+> ⚠️ Always run OBS as administrator to ensure the plugin works correctly
+
+You do not need to build from source to use this plugin on Windows x64.
 
 1. Open the repo Releases page on GitHub.
 2. Download the latest `mouse-trail-windows-x64-<version>.zip`.
 3. Close OBS completely.
 4. Extract the ZIP into your OBS install root.
    - Example: `C:\Program Files\obs-studio`
-5. Start OBS and add source -> **Dynamic Mouse Trail**.
+5. Start OBS **ALWAYS RUN AS ADMINISTRATOR** and add source -> **Dynamic Mouse Trail**.
 
 The release ZIP is already laid out with the folders OBS expects:
 
 - `obs-plugins/64bit/mouse_trail.dll`
 - `data/obs-plugins/mouse_trail/locale/en-US.ini`
 - `bin/64bit/*.dll` (required MinGW runtime DLLs)
+
+macOS and Linux currently require building from source.
 
 ## Maintainer Release Flow (Tags)
 
@@ -36,23 +52,38 @@ git push origin v1.0.0
 
 ## Features
 
-- Smooth mouse trail rendering
-- Age-based fade-out (newer points are brighter)
-- Selectable trail behavior modes:
-   - Smoke mode: upward drift (anti-gravity effect) on older points
-   - Precision mode: no drift, trail fades in-place
-- Configurable trail color in source properties
-- **Canvas Mapping Modes** (new):
-   - All Monitors: trail canvas spans all connected monitors
-   - Specific Monitor: trail canvas limited to a selected monitor
-   - Mousepad: trail movement mapped based on mouse DPI and physical mousepad size
-- **Boundary Behaviors** (new):
-   - Delimited Zone: trail clamped at canvas edges (stops at boundary)
-   - Infinite Wrap: trail wraps to opposite side when crossing boundary
-   - Infinite Recenter: trail jumps back toward center when reaching boundary
-- Thread-safe trail management
-- Frame-rate-independent updates using OBS `video_tick` delta time
-- Cross-platform support (Windows primary, macOS/Linux fallback)
+- **Smooth Mouse Trail Rendering**: Dynamic trail that follows your cursor with configurable appearance
+- **Multiple Trail Behavior Modes**:
+  - **Smoke Mode**: Older trail points drift upward (anti-gravity effect) for an eye-catching, floating appearance
+  - **Precision Mode**: Trail fades in-place without drift, ideal for accurate cursor tracking
+- **Trail Persistence Modes**:
+  - **Timed Fade**: Trail points gradually fade out over a configurable duration (0.1 to 10 seconds)
+  - **Forever**: Trail points persist indefinitely on the canvas (no cleanup)
+  - **Laser Mode**: No trail, only shows a single dot at cursor position for minimal visual footprint
+- **Configurable Trail Appearance**:
+  - Trail base color (any RGB color via color picker)
+  - Trail thickness (1-40 pixels)
+  - Dot size (1-40 pixels)
+  - Tail end opacity (transparency at trail end, 0-1)
+  - Tail opacity falloff curve (0.2-3.0 power curve for fade shape)
+- **Custom Cursor Sprite**: Load your own PNG image as the cursor dot with a one-click clear button
+- **Canvas Mapping Modes**: Map trail coordinates to different screen configurations:
+  - **All Monitors**: Trail spans all connected monitors as a virtual desktop
+  - **Specific Monitor**: Trail limited to a single selected monitor
+  - **Mousepad Simulation**: Trail based on physical mousepad dimensions and mouse DPI (Windows only)
+- **Boundary Behaviors**: Control trail edge behavior:
+  - **Delimited Zone**: Trail clamped at canvas edges (stops movement at boundary)
+  - **Infinite Wrap**: Trail wraps to opposite side when crossing boundary
+  - **Infinite Recenter**: Trail jumps back toward center when reaching boundary
+- **Advanced Mousepad Mode** (Windows):
+  - Auto-detect mouse DPI from Windows pointer speed or manually override
+  - Real-time effective DPI display
+  - Physical mousepad dimensions (width/height in millimeters)
+  - Raw Windows input sensor integration for precise pixel-level tracking
+- **Thread-Safe Architecture**: Safe concurrent access to trail data
+- **Frame-Rate Independent Updates**: Uses OBS `video_tick` delta time for smooth behavior at any FPS
+- **Multi-Monitor Support**: Full monitor enumeration and selection
+- **Platform Scope**: Official release binaries for Windows x64; macOS/Linux are source-build best effort with fallback behavior
 
 ## Repository Layout
 
@@ -101,6 +132,12 @@ Optional settings in `.env`:
 
 ### 2) Run The Script
 
+Install script UI dependency first:
+
+```powershell
+python -m pip install rich
+```
+
 From repo root:
 
 ```powershell
@@ -127,6 +164,12 @@ scripts\build_and_deploy.cmd
 bash scripts/build_and_deploy.sh
 ```
 
+The build launcher now provides:
+
+- Colored status messages (info/success/error)
+- Live loading/progress bars for each major build/deploy step
+- Clear error summaries with the last command output lines
+
 ### 3) Restart OBS And Test
 
 1. Close OBS before running the script (to avoid file locks)
@@ -136,34 +179,96 @@ bash scripts/build_and_deploy.sh
 
 ## Source Properties Guide
 
-### Trail Mode
-- **Smoke**: older trail points drift upward (anti-gravity effect). Useful for attention-grabbing effects.
-- **Precision**: trail points fade in place without upward drift. Better for precise cursor tracking.
+### Trail Group
 
-### Trail Color
-Set the color of the trail gradient. Points fade from this color to transparent.
+#### Trail Behavior Mode
+- **Smoke**: Older trail points drift upward (anti-gravity effect). Creates a floating, eye-catching appearance.
+- **Precision**: Trail points fade in place without drift. Better for precise, static cursor tracking.
 
-### Canvas Mode
-Defines the coordinate system for the trail canvas:
-- **All Monitors**: trail spans across all connected monitors (virtual desktop). Default mode.
-- **Specific Monitor**: trail is limited to a single monitor. Select which monitor from the dropdown after choosing this option.
-- **Mousepad**: trail movement is based on physical mousepad dimensions and mouse DPI. See mousepad settings below.
+#### Trail Base Color
+Set the color of the trail gradient. Trail points fade from this color to transparent over time (or based on position).
 
-### Monitor Selection (only visible when "Specific Monitor" is selected)
-Dropdown list of available monitors with their resolution. Format: `DISPLAY1 (1920x1080 @ 0,0)`
+#### Trail Persistence
+Controls how trail points are managed:
+- **Timed Fade**: Points persist for the configured duration (see "Visible Trail History") then fade out
+- **Forever**: Points never fade; they persist indefinitely on the canvas
+- **No Trail (Laser Dot Only)**: Only the current cursor position dot is rendered; no trail history
 
-### Mousepad Settings (only visible when "Mousepad" mode is selected)
-- **Mouse DPI**: sensitivity of your mouse (dots per inch). Default: 800 DPI. Typical range: 400-3200.
-- **Mousepad Width**: physical width of your mousepad in millimeters. Default: 250mm.
-- **Mousepad Height**: physical height of your mousepad in millimeters. Default: 250mm.
+#### Visible Trail History (seconds)
+Only visible when "Timed Fade" persistence is selected. Duration in seconds that trail points remain visible before fading out. Range: 0.1 to 10 seconds.
 
-When in mousepad mode, the trail movement is calculated based on actual mouse movement (in screen pixels converted to physical distance) divided by your mousepad dimensions. This allows the trail to represent movement relative to your physical input device.
+#### Trail Thickness
+Width of the trail line segments in pixels. Range: 1 to 40 pixels.
 
-### Boundary Behavior
+#### Dot Size
+Size of the cursor dot (or sprite) in pixels. Range: 1 to 40 pixels.
+
+#### Dot Image (PNG)
+Optional custom PNG image to use as the cursor sprite instead of the default solid dot. Click the folder icon to browse and select a PNG file. Click **"Clear Custom Dot"** to reset to the default solid dot.
+
+#### Tail End Opacity
+Transparency of the oldest part of the trail (the tail). Range: 0.0 (fully transparent) to 1.0 (fully opaque). Creates a fade effect from head (opaque) to tail.
+
+#### Tail Opacity Falloff
+Curve shape for the fade from head to tail. Range: 0.2 to 3.0.
+- Lower values: sharp, quick fade to transparent
+- Higher values: gradual, stretched fade
+- 1.0: linear fade
+
+### Canvas Group
+
+#### Canvas Source Mode
+Defines the coordinate system and rendering area for the trail:
+- **All Monitors (Virtual Desktop)**: Trail spans across all connected monitors. Trail can move across monitor boundaries seamlessly. Default mode.
+- **Specific Monitor Only**: Trail is constrained to a single monitor. After selecting this option, use the **"Target Monitor"** dropdown to choose which monitor.
+- **Mousepad Simulation**: Trail movement is based on physical mouse movement relative to your mousepad dimensions and DPI. See mousepad settings below.
+
+#### Target Monitor
+Only visible when "Specific Monitor Only" is selected. Dropdown showing available monitors with their resolution and position. Format: `DISPLAY1 (1920x1080 @ 0,0)`
+
+### Mousepad Group
+
+These settings are only visible when **Canvas Source Mode** is set to "Mousepad Simulation".
+
+#### Mouse DPI (dots per inch)
+Sensitivity of your mouse measured in DPI. This value is used to convert on-screen pixel movement into physical mousepad movement.
+- Default: 800 DPI (common value)
+- Typical range: 400-3200 DPI
+- Manual override: Check **"Set Manually"** to enter a custom value
+- Auto-detect: Uncheck **"Set Manually"** to use Windows system pointer speed (Windows only)
+
+#### Set Manually (Override System DPI Estimate)
+- **Checked (default)**: Use the manual DPI value entered in **"Mouse DPI"**. Precision-focused mode.
+- **Unchecked**: Estimate DPI from Windows pointer speed. Uses system settings to calculate DPI.
+
+#### Effective DPI
+Read-only display showing the currently active DPI value (either manual or system estimate). Updates in real-time when you toggle the manual checkbox or adjust the manual DPI slider.
+
+#### Pad Width (mm)
+Physical width of your mousepad in millimeters. Used to calculate the canvas width for trail rendering.
+- Default: 250mm
+- Example: A standard mousepad is typically 250-350mm wide
+
+#### Pad Height (mm)
+Physical height of your mousepad in millimeters. Used to calculate the canvas height for trail rendering.
+- Default: 250mm
+- Example: A standard mousepad is typically 200-300mm tall
+
+#### Raw Input Active (Sensor Deltas)
+Read-only checkbox (Windows only). Shows whether the plugin is successfully using Windows raw input for precise sensor-level mouse deltas.
+- **Checked**: Raw input is active; using direct hardware sensor data for maximum precision
+- **Unchecked**: Falling back to cursor position approximation (less precise but more compatible)
+
+### Boundary Group
+
+#### Boundary Strategy
 Controls what happens when the trail reaches the edge of the canvas:
-- **Delimited Zone (Clamped)**: trail stops at the canvas boundary. Movement beyond the boundary is not visible.
-- **Infinite Wrap (Continuous)**: when the trail crosses an edge, it continues from the opposite side (wraps around).
-- **Infinite Recenter (Jump to Center)**: when the trail crosses an edge, it jumps back toward the center and continues. Creates a "teleport" effect at boundaries.
+
+- **Delimited Zone (Clamped at Edge)**: Trail movement stops at the canvas boundary. Moving the cursor beyond the boundary does not cause trail movement beyond the edge. Useful for contained effects.
+
+- **Infinite Zone (Wrap to Opposite Side)**: When trail movement crosses an edge, it wraps around to the opposite side. Creates a continuous, torus-like wrapping effect. Useful for infinite canvas effects.
+
+- **Infinite Zone (Restart from Center)**: When trail movement crosses an edge, the trail position jumps back toward the center and continues. Creates a "teleport" or "reset" effect at boundaries. Useful for cycling effects.
 
 ## Prerequisites (Windows, MinGW path)
 
@@ -271,17 +376,30 @@ Contributions are welcome.
 - Monitor enumeration via `EnumDisplayMonitors`
 - Cursor position via `GetCursorPos`
 - Multi-monitor support with individual monitor selection
+- Windows raw input for precision mousepad mode
+- Official GitHub release artifacts are published for Windows x64
 
 ### macOS/Linux
-- ⚠️ Limited support (fallback mode)
-- Mousepad mode not yet implemented (uses approximation)
+- ⚠️ Source-build support only (no official release binaries yet)
+- Mousepad mode uses approximation (not raw input)
 - Monitor selection shows single fallback monitor
 - Contributions welcome for platform-specific implementations
 
 ### Known Limitations
-- **Mousepad mode**: Currently only implemented on Windows. macOS/Linux use a simple screen-space fallback.
+- **Mousepad mode**: Currently only implemented on Windows. macOS/Linux use screen-space approximation.
 - **Monitor enumeration**: Platform-specific. Windows is fully featured.
 - **Boundary behaviors**: All modes (wrap, recenter, delimited) work consistently across platforms.
+
+## Supported Languages
+
+The plugin UI is available in multiple languages. OBS will automatically display the plugin in your system language if available:
+
+- 🇬🇧 **English** (en-US) - Default
+- 🇫🇷 **French** (fr-FR)
+- 🇪🇸 **Spanish** (es-ES)
+- 🇩🇪 **German** (de-DE)
+
+To change the plugin language, change your OBS UI language in Settings → General → Language.
 
 ## Troubleshooting
 

@@ -11,6 +11,7 @@
 struct Point {
 	float x;
 	float y;
+	bool breakBefore;
 	uint64_t timestamp; // Timestamp in nanoseconds (using os_gettime_ns())
 };
 
@@ -34,10 +35,10 @@ public:
 	 * @param x The horizontal coordinate of the cursor.
 	 * @param y The vertical coordinate of the cursor.
 	 */
-	void addPoint(float x, float y) {
+	void addPoint(float x, float y, bool breakBefore = false) {
 		uint64_t currentTime = os_gettime_ns();
 		std::lock_guard<std::mutex> lock(trailMutex);
-		trail.push_back({x, y, currentTime});
+		trail.push_back({x, y, breakBefore, currentTime});
 	}
 
 	/**

@@ -80,6 +80,15 @@ if(MOUSE_TRAIL_DEPLOY_AFTER_BUILD AND WIN32)
             "${CMAKE_CURRENT_SOURCE_DIR}/data/locale/en-US.ini"
             "${OBS_DATA_PLUGIN_DIR}/locale/en-US.ini"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/locale/fr-FR.ini"
+            "${OBS_DATA_PLUGIN_DIR}/locale/fr-FR.ini"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/locale/es-ES.ini"
+            "${OBS_DATA_PLUGIN_DIR}/locale/es-ES.ini"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/locale/de-DE.ini"
+            "${OBS_DATA_PLUGIN_DIR}/locale/de-DE.ini"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${MINGW_BIN}/libgcc_s_seh-1.dll"
             "${OBS_BIN_DIR}/libgcc_s_seh-1.dll"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
