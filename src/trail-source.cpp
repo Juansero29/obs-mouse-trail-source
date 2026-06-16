@@ -5,6 +5,8 @@
 #include <algorithm> // For std::clamp
 #include <cmath>
 #include <cstring>
+#include <cstdio>
+#include <cstdint>
 #include <vector>
 #include <string>
 #include <cstdint>
@@ -40,6 +42,7 @@ static constexpr const char *SETTING_MOUSEPAD_WIDTH = "mousepad_width";
 static constexpr const char *SETTING_MOUSEPAD_HEIGHT = "mousepad_height";
 static constexpr const char *SETTING_MOUSEPAD_RAW_INPUT_ACTIVE = "mousepad_raw_input_active";
 static constexpr const char *SETTING_BOUNDARY_MODE = "boundary_mode";
+static constexpr const char *SETTING_SHOW_DPI_OVERLAY = "show_dpi_overlay";
 
 static constexpr const char *MODE_SMOKE = "smoke";
 static constexpr const char *MODE_PRECISION = "precision";
@@ -467,6 +470,7 @@ public:
 	float mousepadWidth = 250.0f;  // mm
 	float mousepadHeight = 250.0f; // mm
 	std::string boundaryMode = BOUNDARY_MODE_DELIMITED;
+	bool showDpiOverlay = false;
 
 	// Cached last cursor position for mousepad mode
 	float lastCursorX = 0.0f;
@@ -617,6 +621,8 @@ static void mouse_trail_apply_settings(MouseTrailSource *src, obs_data_t *settin
 
 	double padHeight = obs_data_get_double(settings, SETTING_MOUSEPAD_HEIGHT);
 	if (padHeight > 0) src->mousepadHeight = static_cast<float>(padHeight);
+
+	src->showDpiOverlay = obs_data_get_bool(settings, SETTING_SHOW_DPI_OVERLAY);
 
 	// Boundary mode
 	const char *newBoundaryMode = obs_data_get_string(settings, SETTING_BOUNDARY_MODE);
@@ -853,6 +859,8 @@ static obs_properties_t *mouse_trail_get_properties(void *data)
 
 	obs_properties_t *boundaryGroup = obs_properties_create();
 
+	obs_properties_add_bool(props, SETTING_SHOW_DPI_OVERLAY, obs_module_text("mousepad.show_dpi_overlay"));
+
 	// Boundary mode selection
 	obs_property_t *boundaryModeProp = obs_properties_add_list(
 		boundaryGroup,
@@ -904,6 +912,7 @@ static void mouse_trail_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, SETTING_MOUSEPAD_HEIGHT, 250.0);
 	obs_data_set_default_bool(settings, SETTING_MOUSEPAD_RAW_INPUT_ACTIVE, false);
 	obs_data_set_default_string(settings, SETTING_BOUNDARY_MODE, BOUNDARY_MODE_DELIMITED);
+	obs_data_set_default_bool(settings, SETTING_SHOW_DPI_OVERLAY, false);
 }
 
 // ============================================================================
@@ -1120,6 +1129,91 @@ static void mouse_trail_destroy(void *data)
 	delete src;
 }
 
+static void draw_filled_rect(float x, float y, float w, float h)
+{
+	gs_render_start(true);
+	gs_vertex2f(x, y);
+	gs_vertex2f(x + w, y);
+	gs_vertex2f(x, y + h);
+	gs_vertex2f(x + w, y + h);
+	gs_render_stop(GS_TRISTRIP);
+}
+
+static uint8_t glyph_row_bits(char c, int row)
+{
+	static const uint8_t GLYPH_SPACE[7] = {0, 0, 0, 0, 0, 0, 0};
+	static const uint8_t GLYPH_COLON[7] = {0, 0b00100, 0, 0, 0b00100, 0, 0};
+	static const uint8_t GLYPH_D[7] = {0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110};
+	static const uint8_t GLYPH_P[7] = {0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000};
+	static const uint8_t GLYPH_I[7] = {0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111};
+	static const uint8_t GLYPH_0[7] = {0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110};
+	static const uint8_t GLYPH_1[7] = {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110};
+	static const uint8_t GLYPH_2[7] = {0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111};
+	static const uint8_t GLYPH_3[7] = {0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110};
+	static const uint8_t GLYPH_4[7] = {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010};
+	static const uint8_t GLYPH_5[7] = {0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110};
+	static const uint8_t GLYPH_6[7] = {0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110};
+	static const uint8_t GLYPH_7[7] = {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000};
+	static const uint8_t GLYPH_8[7] = {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110};
+	static const uint8_t GLYPH_9[7] = {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110};
+
+	const uint8_t *glyph = GLYPH_SPACE;
+	const char upper = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+
+	switch (upper) {
+	case ':': glyph = GLYPH_COLON; break;
+	case 'D': glyph = GLYPH_D; break;
+	case 'P': glyph = GLYPH_P; break;
+	case 'I': glyph = GLYPH_I; break;
+	case '0': glyph = GLYPH_0; break;
+	case '1': glyph = GLYPH_1; break;
+	case '2': glyph = GLYPH_2; break;
+	case '3': glyph = GLYPH_3; break;
+	case '4': glyph = GLYPH_4; break;
+	case '5': glyph = GLYPH_5; break;
+	case '6': glyph = GLYPH_6; break;
+	case '7': glyph = GLYPH_7; break;
+	case '8': glyph = GLYPH_8; break;
+	case '9': glyph = GLYPH_9; break;
+	default: break;
+	}
+
+	return (row >= 0 && row < 7) ? glyph[row] : 0;
+}
+
+static void draw_bitmap_text_centered(const char *text, float canvasW, float canvasH, float pixelSize, float bottomMargin)
+{
+	if (!text || !*text)
+		return;
+
+	const float glyphW = 5.0f * pixelSize;
+	const float glyphH = 7.0f * pixelSize;
+	const float spacing = pixelSize * 1.5f;
+	const size_t len = strlen(text);
+	if (len == 0)
+		return;
+
+	const float textW = len * glyphW + (len > 1 ? (len - 1) * spacing : 0.0f);
+	float x = (canvasW - textW) * 0.5f;
+	const float y = std::max(0.0f, canvasH - bottomMargin - glyphH);
+
+	for (size_t i = 0; i < len; ++i) {
+		for (int row = 0; row < 7; ++row) {
+			const uint8_t bits = glyph_row_bits(text[i], row);
+			for (int col = 0; col < 5; ++col) {
+				if ((bits & (1u << (4 - col))) != 0) {
+					draw_filled_rect(
+						x + static_cast<float>(col) * pixelSize,
+						y + static_cast<float>(row) * pixelSize,
+						pixelSize,
+						pixelSize);
+				}
+			}
+		}
+		x += glyphW + spacing;
+	}
+}
+
 static uint32_t mouse_trail_get_width(void *data)
 {
 	UNUSED_PARAMETER(data);
@@ -1275,15 +1369,18 @@ static void mouse_trail_render(void *data, gs_effect_t *effect)
 
 	// Retrieve a copy of points under lock to prevent data races with the tick thread
 	std::deque<Point> points = src->trailManager.getPoints();
-	if (points.empty())
+	const bool showDpiOverlay = src->showDpiOverlay;
+	if (points.empty() && !showDpiOverlay)
 		return;
 
 	static uint64_t lastRenderLogNs = 0;
 	uint64_t nowNs = os_gettime_ns();
 	if (nowNs - lastRenderLogNs > 2000000000ULL) {
 		lastRenderLogNs = nowNs;
-		obs_log(LOG_INFO, "render: points=%d first=(%.1f, %.1f) last=(%.1f, %.1f)", (int)points.size(),
-			points.front().x, points.front().y, points.back().x, points.back().y);
+		if (points.size() >= 2) {
+			obs_log(LOG_INFO, "render: points=%d first=(%.1f, %.1f) last=(%.1f, %.1f)", (int)points.size(),
+				points.front().x, points.front().y, points.back().x, points.back().y);
+		}
 	}
 
 	gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
@@ -1294,7 +1391,8 @@ static void mouse_trail_render(void *data, gs_effect_t *effect)
 	if (!colorParam || !tech) return;
 
 	uint64_t currentTime = os_gettime_ns();
-	const Point &head = points.back();
+	const bool hasPoints = !points.empty();
+	const Point head = hasPoints ? points.back() : Point{};
 	const bool useCustomDot = src->dotImageLoaded && src->dotImage.texture != nullptr;
 
 	// Begin rendering techniques and passes
@@ -1323,13 +1421,13 @@ static void mouse_trail_render(void *data, gs_effect_t *effect)
 				float hy = ny * (thickness * 0.5f);
 
 				float alpha = 1.0f;
-				if (src->persistenceMode == PERSISTENCE_MODE_TIMED && src->trailDurationNs > 0) {
-					uint64_t age = (currentTime >= b.timestamp) ? (currentTime - b.timestamp) : 0;
-					float ageNorm = static_cast<float>(age) / static_cast<float>(src->trailDurationNs);
-					ageNorm = std::clamp(ageNorm, 0.0f, 1.0f);
-					float fadeShape = std::pow(ageNorm, std::max(0.01f, src->tailOpacityFalloff));
-					alpha = 1.0f - (1.0f - src->tailEndOpacity) * fadeShape;
-				}
+					if (src->persistenceMode == PERSISTENCE_MODE_TIMED && src->trailDurationNs > 0) {
+						uint64_t age = (currentTime >= b.timestamp) ? (currentTime - b.timestamp) : 0;
+						float ageNorm = static_cast<float>(age) / static_cast<float>(src->trailDurationNs);
+						ageNorm = std::clamp(ageNorm, 0.0f, 1.0f);
+						float fadeShape = std::pow(ageNorm, std::max(0.01f, src->tailOpacityFalloff));
+						alpha = 1.0f - (1.0f - src->tailEndOpacity) * fadeShape;
+					}
 				alpha = std::clamp(alpha, 0.0f, 1.0f);
 
 				struct vec4 segColor;
@@ -1345,7 +1443,7 @@ static void mouse_trail_render(void *data, gs_effect_t *effect)
 			}
 		}
 
-		if (!useCustomDot) {
+		if (!useCustomDot && hasPoints) {
 			const float halfDot = src->dotSize * 0.5f;
 			struct vec4 dotColor;
 			vec4_set(&dotColor, src->colorR, src->colorG, src->colorB, 1.0f);
@@ -1362,7 +1460,7 @@ static void mouse_trail_render(void *data, gs_effect_t *effect)
 	}
 	gs_technique_end(tech);
 
-	if (useCustomDot) {
+	if (useCustomDot && hasPoints) {
 		gs_effect_t *dotEffect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
 		if (dotEffect) {
 			gs_eparam_t *imageParam = gs_effect_get_param_by_name(dotEffect, "image");
@@ -1388,6 +1486,28 @@ static void mouse_trail_render(void *data, gs_effect_t *effect)
 				gs_blend_state_pop();
 			}
 		}
+	}
+
+	if (showDpiOverlay) {
+		struct obs_video_info ovi;
+		const float canvasW = obs_get_video_info(&ovi) ? static_cast<float>(ovi.base_width) : 1920.0f;
+		const float canvasH = obs_get_video_info(&ovi) ? static_cast<float>(ovi.base_height) : 1080.0f;
+		const float pixelSize = std::max(2.0f, std::round(canvasH / 360.0f));
+		const float bottomMargin = std::max(8.0f, canvasH * 0.04f);
+
+		char dpiText[64];
+		snprintf(dpiText, sizeof(dpiText), "DPI: %.0f", src->mousepadDpi);
+
+		size_t textPasses = gs_technique_begin(tech);
+		for (size_t pass = 0; pass < textPasses; ++pass) {
+			gs_technique_begin_pass(tech, pass);
+			struct vec4 textColor;
+			vec4_set(&textColor, 1.0f, 1.0f, 1.0f, 0.9f);
+			gs_effect_set_vec4(colorParam, &textColor);
+			draw_bitmap_text_centered(dpiText, canvasW, canvasH, pixelSize, bottomMargin);
+			gs_technique_end_pass(tech);
+		}
+		gs_technique_end(tech);
 	}
 
 	UNUSED_PARAMETER(effect); // We use the standard OBS_EFFECT_DEFAULT instead of the passed parameter
