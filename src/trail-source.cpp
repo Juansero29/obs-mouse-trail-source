@@ -453,7 +453,7 @@ public:
 	std::string dotImagePath;
 	float tailEndOpacity = 0.0f;
 	float tailOpacityFalloff = 1.0f;
-	gs_image_file_t dotImage{};
+	gs_image_file_ex_t dotImage{};
 	bool dotImageLoaded = false;
 
 	// Trail appearance properties
@@ -492,7 +492,7 @@ static void unload_custom_dot_image(MouseTrailSource *src)
 		return;
 
 	obs_enter_graphics();
-	gs_image_file_free(&src->dotImage);
+	gs_image_file_ex_free(&src->dotImage);
 	obs_leave_graphics();
 	src->dotImageLoaded = false;
 }
@@ -507,20 +507,20 @@ static void load_custom_dot_image(MouseTrailSource *src)
 	if (src->dotImagePath.empty())
 		return;
 
-	gs_image_file_init(&src->dotImage, src->dotImagePath.c_str());
+	gs_image_file_ex_init(&src->dotImage, src->dotImagePath.c_str(), GS_IMAGE_ALPHA_STRAIGHT);
 	if (!src->dotImage.loaded) {
-		gs_image_file_free(&src->dotImage);
+		gs_image_file_ex_free(&src->dotImage);
 		obs_log(LOG_WARNING, "Failed to decode custom dot image: %s", src->dotImagePath.c_str());
 		return;
 	}
 
 	obs_enter_graphics();
-	gs_image_file_init_texture(&src->dotImage);
+	gs_image_file_ex_init_texture(&src->dotImage);
 	obs_leave_graphics();
 
 	if (!src->dotImage.texture) {
 		obs_enter_graphics();
-		gs_image_file_free(&src->dotImage);
+		gs_image_file_ex_free(&src->dotImage);
 		obs_leave_graphics();
 		obs_log(LOG_WARNING, "Failed to create custom dot texture: %s", src->dotImagePath.c_str());
 		return;

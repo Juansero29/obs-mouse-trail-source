@@ -293,9 +293,9 @@ mkdir .deps\tmp -Force
 2. Download OBS source headers (version should match your installed OBS as closely as possible):
 
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/archive/refs/tags/31.1.1.zip" -OutFile .deps\obs-studio.zip
+Invoke-WebRequest -Uri "https://github.com/obsproject/obs-studio/archive/refs/tags/33.0.0.zip" -OutFile .deps\obs-studio.zip
 Expand-Archive -Path .deps\obs-studio.zip -DestinationPath .deps
-Rename-Item .deps\obs-studio-31.1.1 .deps\obs-studio-src
+Rename-Item .deps\obs-studio-33.0.0 .deps\obs-studio-src
 ```
 
 3. Generate MinGW import library from your installed `obs.dll`:
